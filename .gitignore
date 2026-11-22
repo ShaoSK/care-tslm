@@ -1,0 +1,22 @@
+# Allow-list: only what is meant to be public is tracked. Everything else stays local.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/src/
+!/connector/
+!/notes/
+!/docs/
+!/results/
+!/predictions/
+
+# Never tracked, even inside allowed folders
+.env
+.DS_Store
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+*.pt
+data/
+results/store_ab_meta/

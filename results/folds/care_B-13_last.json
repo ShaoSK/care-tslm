@@ -1,0 +1,58 @@
+{
+  "summary": {
+    "n_events": 2,
+    "persist_window_hours": 24,
+    "persist_needed_hours": 1,
+    "care_score": 0.2338888888888889,
+    "coverage": 0.0,
+    "accuracy": 0.5847222222222223,
+    "reliability": 0.0,
+    "earliness": 0.0
+  },
+  "events": [
+    {
+      "event_id": 2,
+      "event_label": "normal",
+      "weighted_score": NaN,
+      "max_criticality": 495,
+      "first_time_detected": NaN,
+      "early_detection_time": NaN,
+      "f_beta_score": NaN,
+      "accuracy": 0.5847222222222223,
+      "tn": 1263,
+      "fp": 897,
+      "fn": 0,
+      "tp": 0,
+      "farm": "B",
+      "turbine": "B-13",
+      "hourly_predictions": 370,
+      "predictions_outside_prediction_period": 0,
+      "alarm_fraction": 0.4199,
+      "raw_anomaly_hours": 10,
+      "persisted_anomaly_hours": 155,
+      "first_alarm_lead_days": null
+    },
+    {
+      "event_id": 7,
+      "event_label": "anomaly",
+      "weighted_score": 0.0,
+      "max_criticality": 0,
+      "first_time_detected": NaN,
+      "early_detection_time": NaN,
+      "f_beta_score": 0.0,
+      "accuracy": 0.14274078599063328,
+      "tn": 701,
+      "fp": 0,
+      "fn": 4210,
+      "tp": 0,
+      "farm": "B",
+      "turbine": "B-13",
+      "hourly_predictions": 889,
+      "predictions_outside_prediction_period": 0,
+      "alarm_fraction": 0.0,
+      "raw_anomaly_hours": 0,
+      "persisted_anomaly_hours": 0,
+      "first_alarm_lead_days": null
+    }
+  ]
+}

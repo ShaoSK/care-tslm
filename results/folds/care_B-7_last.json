@@ -1,0 +1,58 @@
+{
+  "summary": {
+    "n_events": 2,
+    "persist_window_hours": 24,
+    "persist_needed_hours": 1,
+    "care_score": 0.6539351531286522,
+    "coverage": 0.22811284046692606,
+    "accuracy": 1.0,
+    "reliability": 1.0,
+    "earliness": 0.04156292517633493
+  },
+  "events": [
+    {
+      "event_id": 27,
+      "event_label": "anomaly",
+      "weighted_score": 0.04156292517633493,
+      "max_criticality": 469,
+      "first_time_detected": "2023-10-08 19:50:00",
+      "early_detection_time": "23 days 04:10:00",
+      "f_beta_score": 0.22811284046692606,
+      "accuracy": 0.08709157846295444,
+      "tn": 288,
+      "fp": 0,
+      "fn": 7935,
+      "tp": 469,
+      "farm": "B",
+      "turbine": "B-7",
+      "hourly_predictions": 1657,
+      "predictions_outside_prediction_period": 0,
+      "alarm_fraction": 0.0477,
+      "raw_anomaly_hours": 15,
+      "persisted_anomaly_hours": 79,
+      "first_alarm_lead_days": 23.67
+    },
+    {
+      "event_id": 87,
+      "event_label": "normal",
+      "weighted_score": NaN,
+      "max_criticality": 0,
+      "first_time_detected": NaN,
+      "early_detection_time": NaN,
+      "f_beta_score": NaN,
+      "accuracy": 1.0,
+      "tn": 2934,
+      "fp": 0,
+      "fn": 0,
+      "tp": 0,
+      "farm": "B",
+      "turbine": "B-7",
+      "hourly_predictions": 505,
+      "predictions_outside_prediction_period": 0,
+      "alarm_fraction": 0.0,
+      "raw_anomaly_hours": 0,
+      "persisted_anomaly_hours": 0,
+      "first_alarm_lead_days": null
+    }
+  ]
+}

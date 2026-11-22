@@ -24,13 +24,25 @@ choose settings are reported apart), alarm persistence (24 h, 1) for every metho
 
 The fine-tuned model **does not beat the baseline on unseen turbines**. Its development-fold score
 (0.777) did not transfer: the same configuration scored 0.000 on the other development turbine.
-CARE-Score can be gamed by hardly ever alarming (about 0.57 on these events), so the detected and
-falsely detected counts belong next to it. Per-event table: `results/folds/summary.json`.
+CARE-Score rewards caution (on the development turbine a model with just 3 hourly alarms scored 0.57, because
+perfect accuracy on normal events props it up), so the detected and falsely detected counts belong next to it. Per-event table: `results/folds/summary.json`.
 
 A **post-hoc follow-up (v4)** — positives only from the events with visible evidence, sensor-pair
 difference curves as input, random residual offsets during training, and a per-turbine threshold set on
-the turbine's own healthy training period — is reported separately in `results/v4/` and on the demo
-page. It was designed after seeing the result above and does not replace it.
+the turbine's own healthy training period — was designed after seeing the result above and does not
+replace it. On the four folds whose events include one with visible evidence (5 anomaly + 5 normal
+events; `results/v4/compare.json`, `compare_and.json`):
+
+| | CARE-Score | detected | false alarms |
+|---|---|---|---|
+| Fine-tuned OpenTSLM, pre-registered configuration | 0.333 | 0 / 5 | 4 / 5 |
+| Residual-threshold baseline | 0.439 | 3 / 5 | 5 / 5 |
+| **v4, own-turbine threshold (pre-registered main)** | **0.496** | 2 / 5 | 3 / 5 |
+| Baseline AND v4 (rule chosen after the run) | 0.512 | 1 / 5 | 1 / 5 |
+
+The one convincing detection is the main-bearing fault B77 (snapshot AUC 0.96, the right component and
+evidence in the generated answers); the second "detection" (A84) is on a turbine where v4 cannot rank
+hours (AUC 0.43). Four folds, one run each — within the ±0.10 run-to-run noise we measured.
 
 ## What we learned
 

@@ -18,5 +18,5 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 *.pt
-data/
+/data/
 results/store_ab_meta/

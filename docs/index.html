@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>care-tslm · Wind-turbine early fault warning</title>
+<meta name="description" content="Fine-tuning OpenTSLM to warn of wind-turbine faults from SCADA curves, evaluated leave-one-turbine-out with CARE-Score.">
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f3ef;
+  --surface-1: #fcfcfb;
+  --border: #e2e0d9;
+  --grid: #ebe9e3;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7973;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --window: rgba(227, 73, 72, 0.10);
+  --window-edge: #e34948;
+  --ref: #8a8984;
+  --accent: #2a78d6;
+  --good: #008300;
+  --bad: #c0392b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border: #33322f;
+    --grid: #2a2a28;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a998f;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --window: rgba(230, 103, 103, 0.14);
+    --window-edge: #e66767;
+    --ref: #8f8e86;
+    --accent: #3987e5;
+    --good: #0ca30c;
+    --bad: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --border: #33322f;
+  --grid: #2a2a28;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #9a998f;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --window: rgba(230, 103, 103, 0.14);
+  --window-edge: #e66767;
+  --ref: #8f8e86;
+  --accent: #3987e5;
+  --good: #0ca30c;
+  --bad: #e66767;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1040px; margin: 0 auto; padding: 40px 16px 80px; }
+h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.01em; }
+h2 { font-size: 22px; margin: 56px 0 8px; }
+h3 { font-size: 16px; margin: 0 0 6px; }
+p { margin: 0 0 12px; color: var(--text-secondary); max-width: 760px; }
+a { color: var(--accent); }
+.kicker { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; }
+.lede { font-size: 18px; color: var(--text-secondary); max-width: 760px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 28px 0 8px; }
+.stat .num { font-size: 34px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat .lbl { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
+.stat .sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--text-secondary); font-size: 13px; }
+td.n, th.n { text-align: right; }
+.table-wrap { overflow-x: auto; }
+.note { font-size: 13px; color: var(--text-muted); margin-top: 10px; }
+.events { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.events button {
+  font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary);
+}
+.events button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.events .tag { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+.event-head { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 8px; }
+.event-head .what { color: var(--text-secondary); font-size: 14px; }
+.panel { margin-top: 18px; }
+.panel-title { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.panel-title select { font: inherit; font-size: 13px; font-weight: 400; max-width: 100%; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--text-secondary); font-weight: 400; }
+.legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
+svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+svg text { fill: var(--text-muted); font-size: 11px; font-family: inherit; }
+.tip {
+  position: fixed; pointer-events: none; z-index: 10; display: none; font-size: 13px; line-height: 1.4;
+  background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); max-width: 260px;
+}
+.tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.tip .k { color: var(--text-secondary); }
+.explain { display: grid; gap: 10px; margin-top: 16px; }
+.explain .item { border-left: 3px solid var(--border); padding: 6px 12px; font-size: 14px; }
+.explain .item.anomaly { border-left-color: var(--series-2); }
+.explain .meta { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.explain pre { white-space: pre-wrap; margin: 0; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-primary); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.finding .num { font-size: 13px; color: var(--text-muted); }
+.pipeline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
+.pipeline .step { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+.pipeline .arrow { color: var(--text-muted); }
+footer { margin-top: 64px; font-size: 13px; color: var(--text-muted); }
+.ok { color: var(--good); font-weight: 600; }
+.miss { color: var(--bad); font-weight: 600; }
+.step-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.step-num { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 650; background: var(--accent); color: var(--surface-1); flex: none; }
+details summary { cursor: pointer; color: var(--text-secondary); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="kicker">TimeNet Hackathon · Round 1 · Team Samosa</div>
+  <h1>Can a time-series language model warn of a wind-turbine fault before it happens?</h1>
+  <p class="lede">We fine-tuned <a href="https://github.com/OpenTSLM/OpenTSLM">OpenTSLM</a> (Flamingo + Llama-3.2-1B)
+    to look at a turbine's last 30 days of SCADA curves every hour, say whether a fault is building up and explain why —
+    then tested it the hard way: official CARE-Score, every turbine held out in turn, protocol fixed before the run.</p>
+
+  <div class="stats">
+    <div class="card stat"><div class="num">0.380</div><div class="lbl">CARE-Score, fine-tuned OpenTSLM</div><div class="sub">12 held-out turbines, pre-registered</div></div>
+    <div class="card stat"><div class="num">0.477</div><div class="lbl">CARE-Score, residual baseline</div><div class="sub">same folds, same alarm logic</div></div>
+    <div class="card stat"><div class="num">1 / 12</div><div class="lbl">anomaly events detected by the model</div><div class="sub">baseline: 7 / 12, but 12 / 15 false alarms</div></div>
+    <div class="card stat"><div class="num">7 / 18</div><div class="lbl">anomaly events with visible evidence</div><div class="sub">the ceiling for any detector on these channels</div></div>
+  </div>
+  <p class="note">Short version: on turbines it had not seen, the model did not beat a simple baseline. This page shows the
+    result as measured, what we learned from it, and a follow-up that acts on those lessons.</p>
+
+  <h2>The result, as pre-registered</h2>
+  <p>Leave-one-turbine-out over 14 turbines of CARE to Compare farms A and B. Two turbines were used to choose settings and are
+    reported apart; the remaining 12 are the held-out result. Same 24-hour alarm-persistence filter for every method, one run per fold.</p>
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>Method</th><th class="n">CARE-Score</th><th class="n">Coverage</th><th class="n">Accuracy</th><th class="n">Reliability</th><th class="n">Earliness</th><th class="n">Detected</th><th class="n">False alarms</th></tr></thead>
+      <tbody>
+        <tr><td>Fine-tuned OpenTSLM</td><td class="n">0.380</td><td class="n">0.019</td><td class="n">0.876</td><td class="n">0.125</td><td class="n">0.003</td><td class="n">1 / 12</td><td class="n">6 / 15</td></tr>
+        <tr><td>Residual-threshold baseline</td><td class="n">0.477</td><td class="n">0.380</td><td class="n">0.678</td><td class="n">0.398</td><td class="n">0.252</td><td class="n">7 / 12</td><td class="n">12 / 15</td></tr>
+        <tr><td style="color:var(--text-muted)">Development turbine A-0 (used to pick the format)</td><td class="n" style="color:var(--text-muted)">0.777</td><td colspan="4"></td><td class="n" style="color:var(--text-muted)">2 / 3</td><td class="n" style="color:var(--text-muted)">0 / 2</td></tr>
+        <tr><td style="color:var(--text-muted)">Development turbine A-10, same configuration</td><td class="n" style="color:var(--text-muted)">0.000</td><td colspan="4"></td><td class="n" style="color:var(--text-muted)">0 / 3</td><td class="n" style="color:var(--text-muted)">0 / 2</td></tr>
+      </tbody>
+    </table>
+    <p class="note">"Detected" = CARE criticality above 72 inside the event window. CARE-Score rewards caution: on our development
+      turbine a model that raised just 3 hourly alarms scored 0.57, because perfect accuracy on normal events props the score up
+      (a model that never alarms at all scores 0). So the event counts belong next to it. Our early 0.777 did not transfer: a single fold is not evidence.</p>
+  </div>
+
+  <h2>Case study: the main-bearing fault B77</h2>
+  <p>This is the one event where the follow-up model (v4, described below) clearly worked — on a turbine it never trained on.
+    Offshore turbine B-12 was stopped for rotor (main) bearing damage. CARE scores the 63 days before that; its labelled anomaly
+    window (shaded) covers the last 60. The time axis counts days to the end of the window.</p>
+
+  <div class="card">
+    <div class="step-head"><span class="step-num">1</span><h3>The two main-bearing sensors stop agreeing</h3></div>
+    <p>Each sensor is turned into a residual: how far it reads from what this turbine normally reads under the same weather and load.
+      Two sensors on one bearing normally move together, so the <em>difference</em> of their residuals (the line) sits near 0 whatever the
+      season or load. Here it has already
+      moved far below its healthy level when the scored period begins, and stays there.</p>
+    <svg class="chart" id="cs-pair" viewBox="0 0 960 160" role="img" aria-label="Rotor bearing 1 minus rotor bearing 2, in healthy spreads"></svg>
+    <p class="note">Rotor bearing temperature 1 minus rotor bearing temperature 2, in units of the difference's healthy spread
+      (0.29 σ on this turbine), clipped at ±8. The dashed lines mark the healthy level and ±3 spreads. Gaps are hours when the turbine was not
+      producing power.</p>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="step-head"><span class="step-num">2</span><h3>The model rates almost every hour above this turbine's own threshold</h3></div>
+    <p>P(anomaly) is read from the model's likelihood of the two possible answers. The threshold is the 95th percentile of the model's
+      scores on this turbine's healthy training period — set without any label, so a turbine the model sees as "always a bit odd" is
+      calibrated away. Inside the window, 88% of the hours are above it.</p>
+    <svg class="chart" id="cs-prob" viewBox="0 0 960 160" role="img" aria-label="P(anomaly) per hour with the turbine's threshold"></svg>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="step-head"><span class="step-num">3</span><h3>CARE counts it as detected; the pre-registered model never alarmed</h3></div>
+    <p>Criticality rises by one for every 10 minutes in alarm and falls by one otherwise; above 72 the event counts as detected.
+      The residual baseline also detects B77 — but it falsely alarms on this turbine's normal event B86 too, which v4 does not.</p>
+    <div class="legend" id="cs-legend" style="margin-bottom:4px"></div>
+    <svg class="chart" id="cs-crit" viewBox="0 0 960 190" role="img" aria-label="Criticality of three methods on B77"></svg>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="step-head"><span class="step-num">4</span><h3>And it says why — in the right place</h3></div>
+    <p>A generated answer from inside the window. It names the right component (the operator's record says rotor bearing) and the
+      right evidence (the two bearing sensors no longer track each other). All 61 daily answers inside the window say anomaly.</p>
+    <div class="explain" id="cs-explain"></div>
+    <p class="note"><strong>Read the words, not the numbers.</strong> The answers are close to a template, and the numbers in them are
+      wrong: the model writes a healthy spread of 0.18 σ and "49.79 °C normally"; the true values for this turbine are 0.29 σ and 48.24 °C,
+      and the model is never shown absolute readings at all. It reads the direction of a change well and quoted numbers badly (in our
+      measurement, off by about 21 percentage points on average).</p>
+    <p class="note">What this case does <em>not</em> show: early warning from nothing. The bearings had already diverged when the scored
+      period started; the model picks that up from the first hours and holds it until the fault.</p>
+  </div>
+
+  <h2>Where it did not work</h2>
+  <p>The follow-up (v4) was designed <em>after</em> seeing the pre-registered result, so it does not replace it. It changed training, not
+    evaluation: anomaly examples only from the 7 events with visible evidence; sensor-pair differences as extra input curves; a random
+    constant added to each residual during training (so "this turbine runs warm" stops being informative); and the per-turbine threshold
+    above. It was run on the four turbines whose events include one with visible evidence; folds and the main threshold were fixed before
+    the run.</p>
+  <div class="card table-wrap">
+    <table id="v4-table">
+      <thead><tr><th>Method (same 4 folds, 5 anomaly + 5 normal events)</th><th class="n">CARE-Score</th><th class="n">Detected</th><th class="n">False alarms</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="note" id="v4-note"></p>
+  </div>
+  <div class="grid2" style="margin-top:12px">
+    <div class="card"><h3>B7, B19 — transformer, missed</h3><p>Both have visible evidence (transformer cell temperature rising) and the baseline
+      catches both, but v4 stays below its threshold. On turbine B-13 it even ranks normal hours above anomalous ones (snapshot AUC 0.10).</p></div>
+    <div class="card"><h3>A84 — hydraulic, "detected" by luck</h3><p>Our analysis found no visible precursor for this event, and on its turbine
+      v4 cannot separate normal from anomaly hours (AUC 0.43) — the normal event A14 reaches the same criticality. We do not count it as a success.</p></div>
+    <div class="card"><h3>A45 — hydraulic, missed by everyone</h3><p>Its only trace is a changed load response of the oil temperature; none of the
+      methods picked it up.</p></div>
+  </div>
+
+  <h2>Explore every event</h2>
+  <p>All ten events of the four follow-up folds. Same charts as the case study, plus any component residual and sensor pair.</p>
+  <div class="events" id="events" role="group" aria-label="Events"></div>
+  <div class="card" id="viewer">
+    <div class="event-head"><h3 id="ev-title">Loading…</h3><span class="what" id="ev-what"></span></div>
+    <div class="panel">
+      <div class="panel-title">Component residual <select id="sel-comp" aria-label="Component sensor"></select></div>
+      <svg class="chart" id="ch-comp" viewBox="0 0 960 150" role="img" aria-label="Component residual over time"></svg>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Sensor-pair difference <select id="sel-pair" aria-label="Sensor pair"></select></div>
+      <svg class="chart" id="ch-pair" viewBox="0 0 960 150" role="img" aria-label="Sensor pair difference over time"></svg>
+    </div>
+    <div class="panel">
+      <div class="panel-title">v4: P(anomaly) per hour <span class="legend"><span><i style="background:var(--series-3)"></i>P(anomaly)</span><span><i style="background:var(--ref)"></i>this turbine's own threshold</span></span></div>
+      <svg class="chart" id="ch-prob" viewBox="0 0 960 150" role="img" aria-label="Probability of anomaly per hour"></svg>
+    </div>
+    <div class="panel">
+      <div class="panel-title">CARE criticality <span class="legend" id="crit-legend"></span></div>
+      <svg class="chart" id="ch-crit" viewBox="0 0 960 190" role="img" aria-label="Criticality per method over time"></svg>
+    </div>
+    <details style="margin-top:14px"><summary>Table view of this event</summary><div class="table-wrap" id="ev-table"></div></details>
+    <div id="explain-wrap" style="margin-top:18px; display:none">
+      <details><summary>What the model wrote (one answer per day)</summary>
+        <p class="note">Generated text; read the direction, not the numbers.</p>
+        <div class="explain" id="explain"></div>
+      </details>
+    </div>
+  </div>
+
+  <h2>What we learned</h2>
+  <div class="grid2">
+    <div class="card finding"><div class="num">01</div><h3>A model can only learn faults that leave a trace</h3><p>Two independent studies of all 18 anomaly events found visible evidence in our channels for 7 (farm A 2/12, farm B 5/6). All six hydraulic faults are invisible in 10-minute temperature means. Fine-tuning worked where the signal was strong (B77) and nowhere else.</p></div>
+    <div class="card finding"><div class="num">02</div><h3>The explanation is part of the training signal</h3><p>On the development turbine, a model trained to output only "anomaly / normal" could not rank hours (AUC 0.42); the same model trained to write the evidence too reached 0.75. Writing out what to look at, compared with what, seems to teach the model where to look. (One turbine; not yet confirmed on held-out folds.)</p></div>
+    <div class="card finding"><div class="num">03</div><h3>Two sensors beat one</h3><p>The difference between two sensors of one component (main bearing 1 vs 2, transformer core vs cell) cancels season, load and model bias. Four of the seven findable events are only findable this way — B77 among them.</p></div>
+    <div class="card finding"><div class="num">04</div><h3>Labels confounded with season</h3><p>In farm A, anomaly snapshots are 5–7 °C warmer on average and cluster in summer and autumn — a shortcut a model can learn without seeing any fault.</p></div>
+    <div class="card finding"><div class="num">05</div><h3>Greedy decoding is a hidden threshold</h3><p>Trained on ~80% normal data, the model rarely puts more than half its mass on "anomaly". Reading probabilities and calibrating each turbine on its own healthy period made it speak up; the order of the answer fields mattered too.</p></div>
+    <div class="card finding"><div class="num">06</div><h3>One fold is not evidence</h3><p>Retraining the same configuration on the same fold moved CARE-Score by 0.10 (GPU non-determinism), and our best development score (0.777) became 0.000 on the next turbine.</p></div>
+  </div>
+
+  <h2>What we would do next</h2>
+  <div class="grid2">
+    <div class="card"><h3>Detector + TSLM, together</h3><p>The baseline is sensitive but noisy (5 of 5 normal events falsely alarmed on the follow-up folds); v4 is quieter.
+      As a first check, alarming only when <em>both</em> agree kept the B77 detection and cut false alarms to 1 of 5 (CARE 0.512, accuracy 0.94).
+      That rule was chosen after seeing the results, so it is a lead, not a result. Next: let a classical detector trigger and the TSLM verify
+      and explain — or feed the detector's score to the TSLM as one more curve.</p></div>
+    <div class="card"><h3>More expert knowledge in the labels</h3><p>Restricting anomaly examples to events with evidence was itself expert input. Turbine engineers could mark
+      <em>when</em> a precursor starts and <em>which</em> signal shows it, and name the sensor pairs that should track each other — the strongest feature we have.</p></div>
+    <div class="card"><h3>Richer explanation chains</h3><p>If the explanation is what teaches the model where to look, better targets should help: per-component reasoning steps,
+      comparisons against the turbine's own history, and explicit "no evidence" answers for faults the data cannot show.</p></div>
+    <div class="card"><h3>Signals the faults actually leave</h3><p>Hydraulic faults show up in pressure, oil level and pump cycling, not in 10-minute temperature means.
+      Farm C (58 more events, 238 sensors) and the min / max / std channels are the next data to add.</p></div>
+  </div>
+
+  <h2>How it works</h2>
+  <div class="pipeline">
+    <span class="step">CARE to Compare SCADA (10-min)</span><span class="arrow">→</span>
+    <span class="step">same-condition residuals per sensor</span><span class="arrow">→</span>
+    <span class="step">hourly snapshot: 30 d @ 4 h + 7.5 d @ 1 h</span><span class="arrow">→</span>
+    <span class="step">OpenTSLM-Flamingo, Llama-3.2-1B</span><span class="arrow">→</span>
+    <span class="step">Evidence · Component · Answer</span><span class="arrow">→</span>
+    <span class="step">24 h persistence → CARE-Score</span>
+  </div>
+  <p style="margin-top:14px">Each component sensor is given as a residual: how far it reads from what <em>this</em> turbine normally reads at the same
+    ambient temperature, load and wind, fitted on the first half of its training year (which never becomes a sample). The model starts from
+    the released OpenTSLM ECG-QA-CoT checkpoint and is trained as a new curriculum stage. Training targets are generated from the data; the
+    component is the operator's root-cause label. Folds are by turbine; every threshold in the target text comes from training turbines only.</p>
+  <p>Data: <a href="https://doi.org/10.5281/zenodo.15846963">CARE to Compare</a> (Fraunhofer IEE, CC-BY-SA-4.0), farms A and B, 37 events,
+    31,842 hourly snapshots. We contributed a TimeNet connector for the full release:
+    <a href="https://github.com/OpenTSLM/TimeNet/pull/792">OpenTSLM/TimeNet#792</a>.</p>
+
+  <h2>Limitations</h2>
+  <p>One training run per fold. Farms A and B only. Explanations are generated text with unreliable numbers. The follow-up is post hoc,
+    covers four folds and changes three things at once, so neither its gain nor the effect of each change is established. The training pipeline reads the release through the connector's CSV parser;
+    reading from a built TimeNet dataset is implemented but was not verified end to end.</p>
+
+  <footer>Team Samosa · Code and every prediction behind these numbers: <a href="https://github.com/ShaoSK/care-tslm">github.com/ShaoSK/care-tslm</a></footer>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+const V4_RESULTS = {
+  rows: [
+    { name: "OpenTSLM, pre-registered configuration", care: "0.333", det: "0 / 5", fa: "4 / 5" },
+    { name: "Residual-threshold baseline", care: "0.439", det: "3 / 5", fa: "5 / 5" },
+    { name: "v4, own-turbine threshold (95th pct, main)", care: "0.496", det: "2 / 5", fa: "3 / 5", main: true },
+    { name: "v4, greedy answer", care: "0.476", det: "1 / 5", fa: "1 / 5" },
+    { name: "v4, 99th-percentile threshold (sensitivity check)", care: "0.598", det: "2 / 5", fa: "2 / 5" },
+    { name: "Baseline AND v4 (rule chosen after the run)", care: "0.512", det: "1 / 5", fa: "1 / 5" },
+  ],
+  note: "One run per fold, four folds: differences of this size are within the run-to-run noise we measured (±0.10). " +
+        "The only convincing detection is B77; A84 counts as detected but is not credible (see below). " +
+        "Thresholds other than the pre-registered 95th percentile are shown as sensitivity checks, not as picks.",
+};
+
+const W = 960, PAD_L = 44, PAD_R = 92, PAD_T = 10, PAD_B = 24;
+const METHOD_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
+const SHORT = { "baseline": "baseline", "OpenTSLM (pre-registered)": "pre-reg.", "OpenTSLM v4": "v4" };
+const DAY = 86400;
+let DATA = null, CURRENT = null;
+
+const $ = (id) => document.getElementById(id);
+const fmt = (v, d = 2) => (v === null || v === undefined || Number.isNaN(v)) ? "–" : Number(v).toFixed(d);
+
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || 1, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => span / s <= n) || 10 * mag;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+
+// One time-series panel. series: [{label, color, values}], refs: [{value, label}]
+function drawChart(svg, ev, series, opts) {
+  const H = +svg.getAttribute("viewBox").split(" ")[3];
+  svg.innerHTML = "";
+  const xs = ev.times.map((t) => (t - ev.window[1]) / DAY);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, 0);
+  let lo = opts.lo, hi = opts.hi;
+  if (lo === undefined || hi === undefined) {
+    const all = series.flatMap((s) => s.values).filter((v) => v !== null);
+    (opts.refs || []).forEach((r) => all.push(r.value));
+    lo = Math.min(0, ...all); hi = Math.max(0.5, ...all);
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  }
+  const X = (d) => PAD_L + (d - x0) / (x1 - x0 || 1) * (W - PAD_L - PAD_R);
+  const Y = (v) => PAD_T + (hi - v) / (hi - lo || 1) * (H - PAD_T - PAD_B);
+  // event window
+  const ws = (ev.window[0] - ev.window[1]) / DAY;
+  svgEl("rect", { x: X(Math.max(ws, x0)), y: PAD_T, width: Math.max(0, X(Math.min(0, x1)) - X(Math.max(ws, x0))), height: H - PAD_T - PAD_B, fill: "var(--window)" }, svg);
+  // grid + y ticks
+  for (const t of niceTicks(lo, hi, 4)) {
+    svgEl("line", { x1: PAD_L, x2: W - PAD_R, y1: Y(t), y2: Y(t), stroke: "var(--grid)", "stroke-width": 1 }, svg);
+    const tx = svgEl("text", { x: PAD_L - 6, y: Y(t) + 4, "text-anchor": "end" }, svg); tx.textContent = opts.ytick ? opts.ytick(t) : t;
+  }
+  for (const t of niceTicks(x0, x1, 8)) {
+    const tx = svgEl("text", { x: X(t), y: H - 6, "text-anchor": "middle" }, svg); tx.textContent = t === 0 ? "fault" : `${t} d`;
+  }
+  // reference lines (their labels take part in the collision check of the direct labels)
+  const labelYs = [];
+  for (const r of opts.refs || []) {
+    svgEl("line", { x1: PAD_L, x2: W - PAD_R, y1: Y(r.value), y2: Y(r.value), stroke: "var(--ref)", "stroke-width": 1.5, "stroke-dasharray": "4 4" }, svg);
+    const tx = svgEl("text", { x: W - PAD_R + 6, y: Y(r.value) + 4 }, svg); tx.textContent = r.label;
+    labelYs.push(Y(r.value) + 4);
+  }
+  // series
+  series.forEach((s) => {
+    let d = "", pen = false;
+    s.values.forEach((v, i) => {
+      if (v === null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${X(xs[i]).toFixed(1)},${Y(v).toFixed(1)}`; pen = true;
+    });
+    svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    if (opts.directLabels) {
+      const last = [...s.values].reverse().find((v) => v !== null);
+      if (last !== undefined) {
+        let y = Y(last) + 4;
+        let tries = 0;
+        while (labelYs.some((o) => Math.abs(o - y) < 13) && tries++ < 20) y += y > H / 2 ? -13 : 13;
+        labelYs.push(y);
+        const tx = svgEl("text", { x: W - PAD_R + 6, y, style: "fill:var(--text-secondary)" }, svg); tx.textContent = s.short || s.label;
+      }
+    }
+  });
+  // hover layer
+  const cross = svgEl("line", { y1: PAD_T, y2: H - PAD_B, stroke: "var(--text-muted)", "stroke-width": 1, visibility: "hidden" }, svg);
+  const dots = series.map((s) => svgEl("circle", { r: 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden" }, svg));
+  const hit = svgEl("rect", { x: PAD_L, y: 0, width: W - PAD_L - PAD_R, height: H, fill: "transparent" }, svg);
+  const tip = $("tip");
+  const move = (evt) => {
+    const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const d = x0 + (p.x - PAD_L) / (W - PAD_L - PAD_R) * (x1 - x0);
+    let i = 0, best = Infinity;
+    xs.forEach((x, k) => { const dd = Math.abs(x - d); if (dd < best) { best = dd; i = k; } });
+    cross.setAttribute("x1", X(xs[i])); cross.setAttribute("x2", X(xs[i])); cross.setAttribute("visibility", "visible");
+    let html = `<div class="k">${fmt(xs[i], 1)} days to fault${xs[i] >= ws && xs[i] <= 0 ? " · in window" : ""}</div>`;
+    series.forEach((s, k) => {
+      const v = s.values[i];
+      if (v === null) dots[k].setAttribute("visibility", "hidden");
+      else { dots[k].setAttribute("cx", X(xs[i])); dots[k].setAttribute("cy", Y(v)); dots[k].setAttribute("visibility", "visible"); }
+      html += `<div class="row"><span class="k">${s.short || s.label}</span><span>${v === null ? "no data" : (opts.valueFmt ? opts.valueFmt(v) : fmt(v))}</span></div>`;
+    });
+    tip.innerHTML = html; tip.style.display = "block";
+    const tx = Math.min(evt.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = tx + "px"; tip.style.top = (evt.clientY + 14) + "px";
+  };
+  const leave = () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); dots.forEach((c) => c.setAttribute("visibility", "hidden")); };
+  hit.addEventListener("pointermove", move);
+  hit.addEventListener("pointerleave", leave);
+}
+
+function verdict(ev, name) {
+  const m = ev.methods[name];
+  if (!m) return "";
+  const hit = m.max_criticality > DATA.detection_criticality;
+  if (ev.label === "anomaly") return hit ? `<span class="ok">detected</span>` : `<span class="miss">missed</span>`;
+  return hit ? `<span class="miss">false alarm</span>` : `<span class="ok">quiet</span>`;
+}
+
+const COMPONENT_WORDS = { transformer: "transformer", rotor_bearing: "rotor bearing", generator_bearing: "generator bearing",
+  gearbox: "gearbox", hydraulic: "hydraulic" };
+
+function pickDefault(curves, role, ev) {
+  // Prefer the sensors of the recorded fault component; otherwise all curves of the role.
+  const word = COMPONENT_WORDS[ev.fault_component];
+  const all = curves.filter((c) => c.role === role);
+  const own = word ? all.filter((c) => c.label.toLowerCase().includes(word)) : [];
+  const options = own.length ? own : all;
+  // default: the curve that moves most inside the event window
+  const inWin = ev.times.map((t) => t >= ev.window[0] && t <= ev.window[1]);
+  let best = 0, bestScore = -1;
+  options.forEach((c, k) => {
+    const v = c.values.filter((x, i) => inWin[i] && x !== null);
+    const s = v.length ? Math.abs(v.reduce((a, b) => a + b, 0) / v.length) : 0;
+    if (s > bestScore) { bestScore = s; best = k; }
+  });
+  return options[best];
+}
+
+function fillSelect(sel, curves, role, chosen, onChange) {
+  sel.innerHTML = "";
+  curves.filter((c) => c.role === role).forEach((c) => {
+    const o = document.createElement("option"); o.value = c.name; o.textContent = c.label; if (c === chosen) o.selected = true; sel.appendChild(o);
+  });
+  sel.onchange = onChange;
+}
+
+function showEvent(key) {
+  const ev = DATA.events.find((e) => e.key === key); CURRENT = ev;
+  document.querySelectorAll("#events button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.key === key));
+  const names = DATA.methods;
+  $("ev-title").textContent = `Event ${ev.key} · turbine ${ev.turbine} · ${ev.label === "anomaly" ? "fault: " + (ev.fault_component || "unspecified").replace("_", " ") : "normal operation"}`;
+  $("ev-what").innerHTML = names.map((n) => `${n}: ${verdict(ev, n)}`).join(" · ");
+
+  const comp = pickDefault(ev.curves, "component", ev);
+  const pair = pickDefault(ev.curves, "pair", ev);
+  const drawComp = () => {
+    const c = ev.curves.find((x) => x.name === $("sel-comp").value) || comp;
+    drawChart($("ch-comp"), ev, [{ label: "residual (σ)", color: "var(--series-1)", values: c.values }], { refs: [{ value: 0, label: "healthy" }], valueFmt: (v) => fmt(v, 2) + " σ" });
+  };
+  const drawPair = () => {
+    const c = ev.curves.find((x) => x.name === $("sel-pair").value) || pair;
+    drawChart($("ch-pair"), ev, [{ label: "difference (healthy spreads)", short: "difference", color: "var(--series-1)", values: c.values }], { refs: [{ value: 0, label: "healthy" }, { value: 3, label: "3× spread" }], valueFmt: (v) => fmt(v, 2) });
+  };
+  fillSelect($("sel-comp"), ev.curves, "component", comp, drawComp);
+  fillSelect($("sel-pair"), ev.curves, "pair", pair, drawPair);
+  drawComp(); drawPair();
+
+  const v4 = ev.methods[names[names.length - 1]];
+  if (v4 && v4.p_anomaly) {
+    drawChart($("ch-prob"), ev, [{ label: "P(anomaly)", color: "var(--series-3)", values: v4.p_anomaly }], { lo: 0, hi: 1, refs: v4.threshold != null ? [{ value: v4.threshold, label: "threshold" }] : [], valueFmt: (v) => fmt(v, 3) });
+  }
+  drawChart($("ch-crit"), ev, names.filter((n) => ev.methods[n]).map((n, k) => ({ label: n, short: SHORT[n] || n, color: METHOD_COLORS[names.indexOf(n)], values: ev.methods[n].criticality })),
+    { lo: 0, hi: 1050, refs: [{ value: DATA.detection_criticality, label: "detect (72)" }], directLabels: true, valueFmt: (v) => fmt(v, 0) });
+  $("crit-legend").innerHTML = names.map((n, k) => `<span><i style="background:${METHOD_COLORS[k]}"></i>${n} (max ${ev.methods[n] ? ev.methods[n].max_criticality : "–"})</span>`).join("");
+
+  // table view: daily rows
+  const rows = [];
+  for (let i = 0; i < ev.times.length; i += 24) {
+    const d = (ev.times[i] - ev.window[1]) / DAY;
+    rows.push(`<tr><td class="n">${fmt(d, 1)}</td>${names.map((n) => `<td class="n">${ev.methods[n] ? ev.methods[n].criticality[i] : "–"}</td>`).join("")}<td class="n">${v4 && v4.p_anomaly ? fmt(v4.p_anomaly[i], 3) : "–"}</td></tr>`);
+  }
+  $("ev-table").innerHTML = `<table><thead><tr><th class="n">days to fault</th>${names.map((n) => `<th class="n">${n} criticality</th>`).join("")}<th class="n">v4 P(anomaly)</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+
+  const ex = ev.explanations || [];
+  $("explain-wrap").style.display = ex.length ? "block" : "none";
+  $("explain").innerHTML = ex.map((e) => `<div class="item ${e.pred === "anomaly" ? "anomaly" : ""}"><div class="meta">${fmt((e.t - ev.window[1]) / DAY, 1)} days to fault · hour labelled ${e.label}</div><pre></pre></div>`).join("");
+  $("explain").querySelectorAll("pre").forEach((el, i) => { el.textContent = ex[i].text; });
+}
+
+function renderV4() {
+  const body = document.querySelector("#v4-table tbody");
+  if (!V4_RESULTS) { body.innerHTML = `<tr><td colspan="4">Results are being added.</td></tr>`; return; }
+  body.innerHTML = V4_RESULTS.rows.map((r) => `<tr${r.main ? ' style="font-weight:600"' : ""}><td>${r.name}</td><td class="n">${r.care}</td><td class="n">${r.det}</td><td class="n">${r.fa}</td></tr>`).join("");
+  $("v4-note").textContent = V4_RESULTS.note;
+}
+
+function drawCase() {
+  const ev = DATA.events.find((e) => e.key === "B77");
+  if (!ev) return;
+  const names = DATA.methods;
+  const pair = ev.curves.find((c) => c.name === "sensor_51-sensor_52");
+  drawChart($("cs-pair"), ev, [{ label: "bearing 1 − bearing 2", short: "difference", color: "var(--series-1)", values: pair.values }],
+    { refs: [{ value: 0, label: "healthy" }, { value: -3, label: "−3 spreads" }, { value: 3, label: "+3 spreads" }], valueFmt: (v) => fmt(v, 2) + " spreads" });
+  const v4 = ev.methods["OpenTSLM v4"];
+  drawChart($("cs-prob"), ev, [{ label: "P(anomaly)", color: "var(--series-3)", values: v4.p_anomaly }],
+    { lo: 0, hi: 1, refs: [{ value: v4.threshold, label: "threshold" }], valueFmt: (v) => fmt(v, 3) });
+  drawChart($("cs-crit"), ev, names.map((n) => ({ label: n, short: SHORT[n] || n, color: METHOD_COLORS[names.indexOf(n)], values: ev.methods[n].criticality })),
+    { lo: 0, hi: 1050, refs: [{ value: DATA.detection_criticality, label: "detect (72)" }], directLabels: true, valueFmt: (v) => fmt(v, 0) });
+  $("cs-legend").innerHTML = names.map((n, k) => `<span><i style="background:${METHOD_COLORS[k]}"></i>${n}: ${verdict(ev, n)}</span>`).join("");
+  const pick = (ev.explanations || []).filter((e) => e.t >= ev.window[0] && e.t <= ev.window[1]);
+  const e = pick[Math.floor(pick.length / 2)];
+  if (e) {
+    $("cs-explain").innerHTML = `<div class="item anomaly"><div class="meta">${fmt((e.t - ev.window[1]) / DAY, 0)} days before the fault</div><pre></pre></div>`;
+    $("cs-explain").querySelector("pre").textContent = e.text;
+  }
+}
+
+fetch("data/demo.json").then((r) => r.json()).then((d) => {
+  DATA = d;
+  drawCase();
+  const box = $("events");
+  d.events.forEach((ev) => {
+    const b = document.createElement("button");
+    b.dataset.key = ev.key; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `${ev.key}<span class="tag">${ev.label === "anomaly" ? (ev.fault_component || "fault").replace("_", " ") : "normal"}</span>`;
+    b.onclick = () => showEvent(ev.key);
+    box.appendChild(b);
+  });
+  const start = d.events.find((e) => e.key === "B7") || d.events[0];
+  showEvent(start.key);
+}).catch(() => { $("ev-title").textContent = "Could not load data/demo.json"; });
+renderV4();
+window.addEventListener("resize", () => { if (DATA) drawCase(); if (CURRENT) showEvent(CURRENT.key); });
+</script>
+</body>
+</html>
